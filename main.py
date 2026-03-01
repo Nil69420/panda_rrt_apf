@@ -37,6 +37,8 @@ parser.add_argument("--trials", type=int, default=20,
                     help="Number of trials for comparison / benchmark mode")
 parser.add_argument("--delay", type=float, default=None,
                     help="Delay per animation frame (s)")
+parser.add_argument("--random", action="store_true",
+                    help="Use random start/goal positions")
 
 args = parser.parse_args()
 
@@ -44,15 +46,15 @@ args = parser.parse_args()
 
 if args.benchmark:
     from panda_rrt.benchmark import run_benchmark
-    run_benchmark(n_trials=args.trials)
+    run_benchmark(n_trials=args.trials, random_mode=args.random)
 elif args.rrt:
-    run_visual("pure", delay=args.delay)
+    run_visual("pure", delay=args.delay, random_mode=args.random)
 elif args.rrt_apf:
-    run_visual("apf", delay=args.delay)
+    run_visual("apf", delay=args.delay, random_mode=args.random)
 elif args.rrt_apf_opt:
-    run_visual("apf_opt", delay=args.delay)
+    run_visual("apf_opt", delay=args.delay, random_mode=args.random)
 elif args.rrt_apf_spline:
-    run_visual("apf_spline", delay=args.delay)
+    run_visual("apf_spline", delay=args.delay, random_mode=args.random)
 elif args.demo:
     demo()
 else:
@@ -78,6 +80,7 @@ else:
         demo()
     elif choice == "6":
         from panda_rrt.benchmark import run_benchmark
-        run_benchmark(n_trials=args.trials)
+        run_benchmark(n_trials=args.trials, random_mode=args.random)
     else:
-        run_visual(_map.get(choice, "apf"), delay=args.delay)
+        run_visual(_map.get(choice, "apf"), delay=args.delay,
+                   random_mode=args.random)

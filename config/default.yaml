@@ -50,6 +50,7 @@ optimizer:
   n_iters: 40                 # max gradient-descent iterations
   delta_q: 0.01               # finite-difference step (radians)
   min_clearance: 0.012        # reject update if clearance below this
+  danger_threshold: 0.05      # metres — hinge cutoff: no penalty beyond this
   resample_n: 20              # waypoints after resampling
 
 # ── Benchmark ──────────────────────────────────────

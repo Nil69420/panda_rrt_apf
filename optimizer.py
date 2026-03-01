@@ -4,7 +4,12 @@ Minimises  J(P) = J_smooth(P) + lambda * J_obs(P)
 
 where
     J_smooth = sum_i ||q_{i+1} - 2*q_i + q_{i-1}||^2   (acceleration penalty)
-    J_obs    = sum_i 1 / d_min(q_i)                      (obstacle proximity)
+    J_obs    = hinge-loss obstacle proximity
+             = sum_i max(0, 1/d_min(q_i) - 1/d_safe)^2
+
+             Only penalises waypoints closer than ``danger_threshold`` to
+             an obstacle.  Waypoints that are safely far away contribute
+             **zero** obstacle cost, preventing the path from ballooning.
 
 Start and goal waypoints are pinned; only interior waypoints are updated.
 """
@@ -35,6 +40,7 @@ class PathOptimizer:
         n_iters: int | None = None,
         delta_q: float | None = None,
         min_clearance: float | None = None,
+        danger_threshold: float | None = None,
     ) -> None:
         _c = cfg("optimizer")
         self.cc = collision_checker
@@ -43,6 +49,9 @@ class PathOptimizer:
         self.n_iters = n_iters if n_iters is not None else _c["n_iters"]
         self.delta_q = delta_q if delta_q is not None else _c["delta_q"]
         self.min_clearance = min_clearance if min_clearance is not None else _c["min_clearance"]
+        self.danger_threshold = danger_threshold if danger_threshold is not None else _c["danger_threshold"]
+        # Pre-compute the hinge pivot: 1 / d_safe
+        self._inv_d_safe = 1.0 / self.danger_threshold
 
     # ── cost terms ──────────────────────────────────
 
@@ -56,13 +65,22 @@ class PathOptimizer:
         return total
 
     def obstacle_cost(self, path: List[np.ndarray]) -> float:
-        """Sum of 1/d_min for every waypoint (excluding start/goal)."""
+        """Hinge-loss obstacle cost (only penalises within danger zone).
+
+        For each interior waypoint q_i:
+            h_i = max(0, 1/d_min(q_i) - 1/d_safe)^2
+        Total = sum_i h_i
+
+        Waypoints further than ``danger_threshold`` contribute **zero**.
+        """
         total = 0.0
         for i in range(1, len(path) - 1):
             d_min, _, _ = self.cc.min_link_obstacle_distance(path[i])
             if d_min < 1e-6:
                 d_min = 1e-6
-            total += 1.0 / d_min
+            if d_min < self.danger_threshold:
+                h = 1.0 / d_min - self._inv_d_safe
+                total += h * h
         return total
 
     def total_cost(self, path: List[np.ndarray]) -> float:
@@ -98,10 +116,25 @@ class PathOptimizer:
         return grad
 
     def _obstacle_gradient(self, q: np.ndarray) -> np.ndarray:
-        """Numerical gradient of 1/d_min(q) via central differences."""
+        """Gradient of hinge-loss obstacle cost for waypoint *q*.
+
+        h(q) = max(0, 1/d - 1/d_safe)^2
+        dh/dq = 2*(1/d - 1/d_safe) * (-1/d^2) * dd/dq   if d < d_safe
+              = 0                                          otherwise
+
+        Uses central-difference for dd/dq.
+        """
         d_center, _, _ = self.cc.min_link_obstacle_distance(q)
         if d_center < 1e-6:
             d_center = 1e-6
+
+        # Outside danger zone → zero gradient (big speedup)
+        if d_center >= self.danger_threshold:
+            return np.zeros(PANDA_NUM_JOINTS)
+
+        inv_d = 1.0 / d_center
+        h_val = inv_d - self._inv_d_safe       # positive because d < d_safe
+        prefactor = 2.0 * h_val * (-inv_d * inv_d)  # 2*(1/d - 1/d_safe)*(-1/d²)
 
         grad = np.zeros(PANDA_NUM_JOINTS)
         for j in range(PANDA_NUM_JOINTS):
@@ -124,9 +157,8 @@ class PathOptimizer:
             if d_minus < 1e-6:
                 d_minus = 1e-6
 
-            # gradient of 1/d  =>  -1/d^2 * dd/dq
             dd_dq = (d_plus - d_minus) / actual_delta
-            grad[j] = -dd_dq / (d_center * d_center)
+            grad[j] = prefactor * dd_dq
 
         return grad
 

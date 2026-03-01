@@ -21,7 +21,7 @@ from panda_rrt.apf_rrt import APFGuidedRRT
 from panda_rrt.pure_rrt import PureRRT, PlannerResult
 from panda_rrt.optimizer import PathOptimizer
 from panda_rrt.spline_smoother import SplineSmoother
-from panda_rrt.scene import load_demo_goal, spawn_obstacles
+from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_start_goal
 from panda_rrt.visualisation import (
     draw_ee_trace,
     interpolate_path,
@@ -111,7 +111,11 @@ def wait_and_close(env: RRTEnvironment) -> None:
 
 # ── commands ────────────────────────────────────────
 
-def run_visual(planner_type: str, delay: float | None = None) -> None:
+def run_visual(
+    planner_type: str,
+    delay: float | None = None,
+    random_mode: bool = False,
+) -> None:
     """Plan and visualise the trajectory in a GUI window."""
     if delay is None:
         delay = cfg("visualisation", "frame_delay")
@@ -137,8 +141,13 @@ def run_visual(planner_type: str, delay: float | None = None) -> None:
     spawn_obstacles(env)
 
     # --- start / goal ---
-    q_start = PANDA_REST_POSES.copy()
-    q_goal = load_demo_goal()
+    if random_mode:
+        from panda_rrt.scene import sample_random_start_goal
+        q_start, q_goal = sample_random_start_goal(env, seed=None)
+        print("  Using RANDOM start / goal")
+    else:
+        q_start = PANDA_REST_POSES.copy()
+        q_goal = load_demo_goal()
 
     ee_start = fk.ee_position(q_start)
     ee_goal = fk.ee_position(q_goal)

@@ -29,7 +29,7 @@ from panda_rrt.rrt_star import RRTStar
 from panda_rrt.apf_rrt import APFGuidedRRT
 from panda_rrt.optimizer import PathOptimizer
 from panda_rrt.spline_smoother import SplineSmoother
-from panda_rrt.scene import load_demo_goal, spawn_obstacles
+from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_start_goal
 from panda_rrt.config import get as cfg
 
 
@@ -149,15 +149,20 @@ _RUNNERS = {
 
 
 def _run_trial(
-    planners: List[str], seed: int, verbose: bool = False,
+    planners: List[str], seed: int,
+    verbose: bool = False, random_mode: bool = False,
 ) -> Dict[str, TrialResult]:
     """Run selected planners on a single shared env."""
-    q_start = PANDA_REST_POSES.copy()
-    q_goal = load_demo_goal()
     results: Dict[str, TrialResult] = {}
 
     env = RRTEnvironment(render_mode="rgb_array")
     spawn_obstacles(env)
+
+    if random_mode:
+        q_start, q_goal = sample_random_start_goal(env, seed=seed)
+    else:
+        q_start = PANDA_REST_POSES.copy()
+        q_goal = load_demo_goal()
 
     for name in planners:
         results[name] = _RUNNERS[name](
@@ -260,15 +265,17 @@ def run_benchmark(
     n_trials: int = 20,
     verbose: bool = False,
     preset: Optional[str] = None,
+    random_mode: bool = False,
 ) -> None:
     # Resolve preset
     if preset is None:
         preset = _choose_preset()
     planners = PRESETS.get(preset, PRESETS["apf"])
 
+    mode_label = "random start/goal" if random_mode else "demo obstacle scene"
     print("=" * 64)
     print(f"  Benchmark: {' vs '.join(planners)}")
-    print(f"  Trials: {n_trials}   |   Demo obstacle scene")
+    print(f"  Trials: {n_trials}   |   {mode_label}")
     print("=" * 64)
 
     all_results: List[Dict[str, TrialResult]] = []
@@ -276,7 +283,9 @@ def run_benchmark(
     for trial in range(n_trials):
         seed = 1000 + trial
         t0 = time.perf_counter()
-        results = _run_trial(planners, seed, verbose=verbose)
+        results = _run_trial(
+            planners, seed, verbose=verbose, random_mode=random_mode,
+        )
         elapsed = time.perf_counter() - t0
         all_results.append(results)
 
@@ -298,9 +307,14 @@ parser.add_argument("--trials", type=int,
                     help="Number of randomised trials")
 parser.add_argument("--verbose", action="store_true",
                     help="Print optimizer progress per trial")
+parser.add_argument("--random", action="store_true",
+                    help="Use random start/goal positions each trial")
 parser.add_argument("--preset", type=str, default=None,
                     choices=list(PRESETS.keys()),
                     help="Planner preset (skip interactive menu)")
 args = parser.parse_args()
 
-run_benchmark(n_trials=args.trials, verbose=args.verbose, preset=args.preset)
+run_benchmark(
+    n_trials=args.trials, verbose=args.verbose,
+    preset=args.preset, random_mode=args.random,
+)
