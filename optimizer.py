@@ -25,7 +25,7 @@ from panda_rrt.common_utils.robot_constants import (
     PANDA_UPPER_LIMITS,
     PANDA_NUM_JOINTS,
 )
-from panda_rrt.collision import CollisionChecker
+from panda_rrt.collision import CollisionChecker, COLLISION_LINKS
 from panda_rrt.config import get as cfg
 
 
@@ -116,51 +116,92 @@ class PathOptimizer:
         return grad
 
     def _obstacle_gradient(self, q: np.ndarray) -> np.ndarray:
-        """Gradient of hinge-loss obstacle cost for waypoint *q*.
+        """Gradient of hinge-loss obstacle cost via the Jacobian transpose.
 
         h(q) = max(0, 1/d - 1/d_safe)^2
-        dh/dq = 2*(1/d - 1/d_safe) * (-1/d^2) * dd/dq   if d < d_safe
-              = 0                                          otherwise
+        dh/dq = 2*(1/d - 1/d_safe) * (-1/d^2) * J^T * n_hat   if d < d_safe
+              = 0                                                otherwise
 
-        Uses central-difference for dd/dq.
+        Uses ``getClosestPoints`` once to find contact normals, then
+        ``calculateJacobian`` per active link — replaces the old 14-call
+        finite-difference sweep.
         """
-        d_center, _, _ = self.cc.min_link_obstacle_distance(q)
-        if d_center < 1e-6:
-            d_center = 1e-6
+        # Sweep all obstacles — one set_config + N_obs getClosestPoints
+        contact_info = self._per_link_contact_info(q)
 
-        # Outside danger zone → zero gradient (big speedup)
-        if d_center >= self.danger_threshold:
+        # Find global min distance for the hinge test
+        d_min = min(
+            (info[0] for info in contact_info.values()),
+            default=float("inf"),
+        )
+        if d_min < 1e-6:
+            d_min = 1e-6
+
+        # Outside danger zone → zero gradient (skip all Jacobian work)
+        if d_min >= self.danger_threshold:
             return np.zeros(PANDA_NUM_JOINTS)
 
-        inv_d = 1.0 / d_center
-        h_val = inv_d - self._inv_d_safe       # positive because d < d_safe
-        prefactor = 2.0 * h_val * (-inv_d * inv_d)  # 2*(1/d - 1/d_safe)*(-1/d²)
+        inv_d = 1.0 / d_min
+        h_val = inv_d - self._inv_d_safe
+        prefactor = 2.0 * h_val * (-inv_d * inv_d)
 
+        # Accumulate J^T · n for every link within danger_threshold
         grad = np.zeros(PANDA_NUM_JOINTS)
-        for j in range(PANDA_NUM_JOINTS):
-            q_plus = q.copy()
-            q_plus[j] += self.delta_q
-            q_plus = np.clip(q_plus, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS)
-
-            q_minus = q.copy()
-            q_minus[j] -= self.delta_q
-            q_minus = np.clip(q_minus, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS)
-
-            actual_delta = q_plus[j] - q_minus[j]
-            if abs(actual_delta) < 1e-10:
+        for link_idx, (rho_i, normal, pos_on_robot) in contact_info.items():
+            if rho_i >= self.danger_threshold or rho_i < 1e-6:
                 continue
+            local_pos = self._world_to_link_local(link_idx, pos_on_robot)
+            J = self._link_jacobian(q, link_idx, local_pos)
+            # Contact normal points obstacle → robot; we want dd/dq ≈ J^T · n
+            grad += J.T @ normal
 
-            d_plus, _, _ = self.cc.min_link_obstacle_distance(q_plus)
-            d_minus, _, _ = self.cc.min_link_obstacle_distance(q_minus)
-            if d_plus < 1e-6:
-                d_plus = 1e-6
-            if d_minus < 1e-6:
-                d_minus = 1e-6
+        return prefactor * grad
 
-            dd_dq = (d_plus - d_minus) / actual_delta
-            grad[j] = prefactor * dd_dq
+    # ── Jacobian-transpose helpers (shared with CSpaceAPF) ──
 
-        return grad
+    def _per_link_contact_info(self, q: np.ndarray):
+        """Sweep ``getClosestPoints`` for every obstacle.
+
+        Returns ``{link: (distance, contact_normal_3d, pos_on_robot_3d)}``.
+        """
+        self.cc.set_config(q)
+        info = {}
+        for obs_id in self.cc._obstacle_ids:
+            contacts = self.cc._p.getClosestPoints(
+                bodyA=self.cc._robot_id, bodyB=obs_id, distance=1.0,
+            )
+            for cp in contacts:
+                link_idx = cp[3]
+                if link_idx not in COLLISION_LINKS:
+                    continue
+                d = cp[8]
+                if link_idx not in info or d < info[link_idx][0]:
+                    info[link_idx] = (d, np.array(cp[7]), np.array(cp[5]))
+        return info
+
+    def _world_to_link_local(self, link_idx: int, world_pos: np.ndarray):
+        """Convert a world-frame point to the link's local URDF frame."""
+        state = self.cc._p.getLinkState(self.cc._robot_id, link_idx)
+        inv_pos, inv_orn = self.cc._p.invertTransform(state[4], state[5])
+        local, _ = self.cc._p.multiplyTransforms(
+            inv_pos, inv_orn,
+            world_pos.tolist(), [0, 0, 0, 1],
+        )
+        return list(local)
+
+    def _link_jacobian(self, q: np.ndarray, link_idx: int, local_pos):
+        """Compute the 3×7 linear Jacobian at *link_idx* / *local_pos*."""
+        q_list = q.tolist()
+        zero_vec = [0.0] * PANDA_NUM_JOINTS
+        lin_jac, _ = self.cc._p.calculateJacobian(
+            bodyUniqueId=self.cc._robot_id,
+            linkIndex=link_idx,
+            localPosition=local_pos,
+            objPositions=q_list + [0.0, 0.0],
+            objVelocities=zero_vec + [0.0, 0.0],
+            objAccelerations=zero_vec + [0.0, 0.0],
+        )
+        return np.array(lin_jac)[:, :PANDA_NUM_JOINTS]
 
     # ── optimiser ───────────────────────────────────
 
@@ -213,24 +254,29 @@ class PathOptimizer:
             for i in range(1, len(opt) - 1):
                 g_smooth = self._smooth_gradient(opt, i)
                 g_obs = self._obstacle_gradient(opt[i])
-                # 2 * PANDA_NUM_JOINTS + 1 pybullet calls per interior point
-                pybullet_calls += 2 * 7 + 1
+                # N_obs getClosestPoints + N_active calculateJacobian
+                pybullet_calls += len(self.cc._obstacle_ids) + 1
                 grads.append(g_smooth + self.lam * g_obs)
             t_grad_total += time.perf_counter() - t_g0
 
-            # Apply updates
+            # Apply updates – step-clipped to prevent teleporting
+            max_step = 0.05  # max C-space movement per waypoint per iter
             any_moved = False
             t_c0 = time.perf_counter()
             for idx, i in enumerate(range(1, len(opt) - 1)):
-                step = -self.lr * grads[idx]
+                raw_step = -self.lr * grads[idx]
+                # ── step clipping: cap the norm to prevent teleporting ──
+                step_norm = np.linalg.norm(raw_step)
+                if step_norm > max_step:
+                    raw_step = raw_step * (max_step / step_norm)
                 q_new = np.clip(
-                    opt[i] + step, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS,
+                    opt[i] + raw_step, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS,
                 )
-                # Only accept if the new config is collision-free
+                # Only accept if the config is collision-free
                 d_min, _, _ = self.cc.min_link_obstacle_distance(q_new)
                 pybullet_calls += 1
                 if d_min > self.min_clearance:
-                    if np.linalg.norm(step) > 1e-8:
+                    if step_norm > 1e-8:
                         any_moved = True
                     opt[i] = q_new
             t_collision_total += time.perf_counter() - t_c0

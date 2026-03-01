@@ -78,12 +78,25 @@ class TestCSpaceAPF:
         grad = apf.attractive_gradient(q, q)
         np.testing.assert_allclose(grad, 0.0, atol=1e-10)
 
-    def test_attractive_gradient_magnitude(self, apf):
+    def test_attractive_gradient_quadratic(self, apf):
+        """Within d_thresh the gradient is purely quadratic."""
         q = PANDA_REST_POSES.copy()
-        q_goal = q + 1.0
+        q_goal = q + 0.3            # d ≈ 0.79 rad  (< d_thresh)
         grad = apf.attractive_gradient(q, q_goal)
         expected = apf.k_att * (q - q_goal)
         np.testing.assert_allclose(grad, expected, atol=1e-10)
+
+    def test_attractive_gradient_conic(self, apf):
+        """Beyond d_thresh the gradient magnitude is clamped."""
+        q = PANDA_REST_POSES.copy()
+        q_goal = q + 2.0            # d ≈ 5.29 rad  (> d_thresh)
+        v = q - q_goal
+        d = np.linalg.norm(v)
+        grad = apf.attractive_gradient(q, q_goal)
+        expected = apf.k_att * apf.d_thresh * v / d
+        np.testing.assert_allclose(grad, expected, atol=1e-10)
+        # Magnitude should equal k_att * d_thresh, not k_att * d
+        assert np.linalg.norm(grad) < np.linalg.norm(apf.k_att * v)
 
     def test_repulsive_gradient_shape(self, apf):
         grad = apf.repulsive_gradient(PANDA_REST_POSES)

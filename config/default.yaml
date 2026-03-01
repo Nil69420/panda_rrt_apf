@@ -29,6 +29,8 @@ apf:
   k_rep: 0.005                 # lower = less violent obstacle push
   rho_0: 0.08                  # metres — repulsion cutoff radius
   delta_q: 0.01
+  f_max: 10.0                  # force cap per component (att / rep)
+  d_thresh: 2.0                # rad — conic/quadratic switch distance
 
 # ── Path smoothing ─────────────────────────────────
 smoothing:
@@ -57,11 +59,14 @@ optimizer:
 benchmark:
   n_trials: 20
 
-# ── Demo scene ─────────────────────────────────────
+# ── Demo scenes ────────────────────────────────────
 demo:
-  goal: [1.2, 0.2, -0.3, -1.8, 0.5, 2.5, 0.0]
+  # Per-scene fixed goals
+  wall_goal:   [1.2, 0.2, -0.3, -1.8, 0.5, 2.5, 0.0]
+  canopy_goal: [0.3, 0.1, 0.4, -2.5, -0.2, 2.8, 0.4]
 
-  obstacles:
+  # "wall" — original pillars + balls in front of the arm
+  wall:
     - { shape: cylinder, name: pillar_A, pos: [0.44,  0.15,  0.52], radius: 0.025, height: 0.18, color: [0.85, 0.25, 0.20, 0.85] }
     - { shape: cylinder, name: pillar_B, pos: [0.52,  0.45,  0.52], radius: 0.025, height: 0.18, color: [0.20, 0.55, 0.85, 0.85] }
     - { shape: cylinder, name: pillar_C, pos: [0.28,  0.55,  0.32], radius: 0.025, height: 0.18, color: [0.90, 0.70, 0.10, 0.85] }
@@ -72,6 +77,25 @@ demo:
     - { shape: cylinder, name: pillar_H, pos: [0.44,  0.15,  0.32], radius: 0.025, height: 0.18, color: [0.80, 0.55, 0.20, 0.85] }
     - { shape: sphere,   name: ball_I,   pos: [0.44,  0.45,  0.42], radius: 0.03,                color: [0.35, 0.35, 0.90, 0.85] }
     - { shape: cylinder, name: pillar_J, pos: [0.44,  0.35,  0.52], radius: 0.025, height: 0.18, color: [0.90, 0.30, 0.60, 0.85] }
+
+  # "canopy" — tight cage of objects surrounding the arm (1–6 cm clearance)
+  canopy:
+    # overhead — just above the shoulder/elbow arc
+    - { shape: sphere, name: cap_over_1,  pos: [0.20,  0.05,  0.72], radius: 0.025, color: [0.95, 0.30, 0.30, 0.80] }
+    - { shape: sphere, name: cap_over_2,  pos: [0.15, -0.08,  0.69], radius: 0.025, color: [0.30, 0.75, 0.95, 0.80] }
+    # flanking left/right at elbow height
+    - { shape: sphere, name: cap_flank_r, pos: [0.35, -0.10,  0.55], radius: 0.025, color: [0.95, 0.80, 0.20, 0.80] }
+    - { shape: sphere, name: cap_flank_l, pos: [0.35,  0.15,  0.55], radius: 0.025, color: [0.40, 0.90, 0.35, 0.80] }
+    # front/side near the forearm
+    - { shape: sphere, name: cap_front,   pos: [0.58,  0.16,  0.44], radius: 0.025, color: [0.70, 0.25, 0.85, 0.80] }
+    # below the forearm
+    - { shape: sphere, name: cap_under,   pos: [0.45, -0.05,  0.38], radius: 0.025, color: [0.85, 0.50, 0.20, 0.80] }
+    # near the wrist
+    - { shape: sphere, name: cap_wrist,   pos: [0.55, -0.07,  0.32], radius: 0.025, color: [0.15, 0.80, 0.80, 0.80] }
+    # rear — behind the shoulder arc
+    - { shape: sphere, name: cap_rear,    pos: [0.06,  0.00,  0.55], radius: 0.025, color: [0.25, 0.55, 0.90, 0.80] }
+    # mid-level cage between elbow and wrist
+    - { shape: cylinder, name: cap_cage,  pos: [0.32,  0.12,  0.50], radius: 0.018, height: 0.12, color: [0.90, 0.40, 0.55, 0.80] }
 
 # ── Visualisation ──────────────────────────────────
 visualisation:

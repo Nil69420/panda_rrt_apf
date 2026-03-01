@@ -21,7 +21,7 @@ from panda_rrt.apf_rrt import APFGuidedRRT
 from panda_rrt.pure_rrt import PureRRT, PlannerResult
 from panda_rrt.optimizer import PathOptimizer
 from panda_rrt.spline_smoother import SplineSmoother
-from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_start_goal
+from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_goal, greedy_shortcut
 from panda_rrt.visualisation import (
     draw_ee_trace,
     interpolate_path,
@@ -115,6 +115,7 @@ def run_visual(
     planner_type: str,
     delay: float | None = None,
     random_mode: bool = False,
+    scene: str = "wall",
 ) -> None:
     """Plan and visualise the trajectory in a GUI window."""
     if delay is None:
@@ -138,16 +139,15 @@ def run_visual(
 
     # --- obstacles ---
     print("[2/5] Placing obstacles …")
-    spawn_obstacles(env)
+    spawn_obstacles(env, scene=scene)
 
     # --- start / goal ---
+    q_start = PANDA_REST_POSES.copy()
     if random_mode:
-        from panda_rrt.scene import sample_random_start_goal
-        q_start, q_goal = sample_random_start_goal(env, seed=None)
-        print("  Using RANDOM start / goal")
+        q_goal = sample_random_goal(env, q_start, seed=None)
+        print("  Using RANDOM goal")
     else:
-        q_start = PANDA_REST_POSES.copy()
-        q_goal = load_demo_goal()
+        q_goal = load_demo_goal(scene)
 
     ee_start = fk.ee_position(q_start)
     ee_goal = fk.ee_position(q_goal)
@@ -202,13 +202,13 @@ def run_visual(
     elif planner_type == "apf_spline":
         import time as _t
         t0 = _t.perf_counter()
-        final_path = SplineSmoother.smooth(result.smoothed_path, n_points=60)
+        pruned = greedy_shortcut(result.path, env)
+        final_path = SplineSmoother.smooth(pruned, n_points=60)
         t_spline = _t.perf_counter() - t0
         spline_len = PathOptimizer.path_length(final_path)
-        j_accel = SplineSmoother.integrated_acceleration_cost(
-            result.smoothed_path,
-        )
-        print(f"[4/{steps}] B-Spline smoothing ({len(final_path)} pts, "
+        j_accel = SplineSmoother.integrated_acceleration_cost(pruned)
+        print(f"[4/{steps}] Shortcut+Spline ({len(result.path)} \u2192 "
+              f"{len(pruned)} wps, {len(final_path)} spline pts, "
               f"{t_spline * 1000:.1f} ms)")
         print(f"  Spline path length: {spline_len:.3f} rad")
         print(f"  \u222b\u2016q\u0308(t)\u2016\u00b2 dt = {j_accel:.2f}\n")
@@ -218,15 +218,22 @@ def run_visual(
     print(f"[{ee_step}/{steps}] Drawing EE path trace …")
     draw_ee_trace(env._p, fk, final_path)
 
-    # --- animate ---
-    dense = interpolate_path(final_path)
+    # --- animate (always spline-smooth for C² continuity) ---
+    anim_path = SplineSmoother.smooth(final_path, n_points=max(60, len(final_path)))
+    dense = interpolate_path(anim_path)
     duration_est = len(dense) * delay
     anim_step = int(steps)
     print(f"[{anim_step}/{steps}] Animating {len(dense)} frames "
           f"(~{duration_est:.1f} s at {1 / delay:.0f} fps) …\n")
 
     env.visualize_config(q_start)
-    time.sleep(0.5)
+
+    print("\n  Press Enter to start the animation …")
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        pass
+
     for q in dense:
         env.visualize_config(q)
         time.sleep(delay)
@@ -246,7 +253,7 @@ def demo() -> None:
     spawn_obstacles(env)
 
     q_start = PANDA_REST_POSES.copy()
-    q_goal = load_demo_goal()
+    q_goal = load_demo_goal()  # wall scene default
 
     ee_start = fk.ee_position(q_start)
     ee_goal = fk.ee_position(q_goal)
@@ -280,7 +287,7 @@ def compare(n_trials: int = 20) -> None:
     pure_results: List[PlannerResult] = []
 
     q_start = PANDA_REST_POSES.copy()
-    q_goal = load_demo_goal()
+    q_goal = load_demo_goal()  # wall scene default
 
     for trial in range(n_trials):
         seed = 1000 + trial

@@ -39,6 +39,12 @@ parser.add_argument("--delay", type=float, default=None,
                     help="Delay per animation frame (s)")
 parser.add_argument("--random", action="store_true",
                     help="Use random start/goal positions")
+_scene_group = parser.add_mutually_exclusive_group()
+_scene_group.add_argument("--wall", action="store_const", dest="scene",
+                          const="wall", help="Wall obstacle scene (default)")
+_scene_group.add_argument("--canopy", action="store_const", dest="scene",
+                          const="canopy", help="Canopy obstacle scene")
+parser.set_defaults(scene="wall")
 
 args = parser.parse_args()
 
@@ -46,15 +52,15 @@ args = parser.parse_args()
 
 if args.benchmark:
     from panda_rrt.benchmark import run_benchmark
-    run_benchmark(n_trials=args.trials, random_mode=args.random)
+    run_benchmark(n_trials=args.trials, random_mode=args.random, scene=args.scene)
 elif args.rrt:
-    run_visual("pure", delay=args.delay, random_mode=args.random)
+    run_visual("pure", delay=args.delay, random_mode=args.random, scene=args.scene)
 elif args.rrt_apf:
-    run_visual("apf", delay=args.delay, random_mode=args.random)
+    run_visual("apf", delay=args.delay, random_mode=args.random, scene=args.scene)
 elif args.rrt_apf_opt:
-    run_visual("apf_opt", delay=args.delay, random_mode=args.random)
+    run_visual("apf_opt", delay=args.delay, random_mode=args.random, scene=args.scene)
 elif args.rrt_apf_spline:
-    run_visual("apf_spline", delay=args.delay, random_mode=args.random)
+    run_visual("apf_spline", delay=args.delay, random_mode=args.random, scene=args.scene)
 elif args.demo:
     demo()
 else:
@@ -80,7 +86,7 @@ else:
         demo()
     elif choice == "6":
         from panda_rrt.benchmark import run_benchmark
-        run_benchmark(n_trials=args.trials, random_mode=args.random)
+        run_benchmark(n_trials=args.trials, random_mode=args.random, scene=args.scene)
     else:
         run_visual(_map.get(choice, "apf"), delay=args.delay,
-                   random_mode=args.random)
+                   random_mode=args.random, scene=args.scene)

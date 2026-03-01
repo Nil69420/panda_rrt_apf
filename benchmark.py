@@ -29,7 +29,7 @@ from panda_rrt.rrt_star import RRTStar
 from panda_rrt.apf_rrt import APFGuidedRRT
 from panda_rrt.optimizer import PathOptimizer
 from panda_rrt.spline_smoother import SplineSmoother
-from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_start_goal
+from panda_rrt.scene import load_demo_goal, spawn_obstacles, sample_random_goal, greedy_shortcut
 from panda_rrt.config import get as cfg
 
 
@@ -125,7 +125,8 @@ def _run_apf_rrt_spline(env, q_start, q_goal, seed, **_kw) -> TrialResult:
         )
 
     t0 = time.perf_counter()
-    spline_path = SplineSmoother.smooth(res.smoothed_path, n_points=60)
+    pruned = greedy_shortcut(res.path, env)
+    spline_path = SplineSmoother.smooth(pruned, n_points=60)
     t_spline = time.perf_counter() - t0
 
     return TrialResult(
@@ -151,18 +152,20 @@ _RUNNERS = {
 def _run_trial(
     planners: List[str], seed: int,
     verbose: bool = False, random_mode: bool = False,
+    scene: str = "wall",
 ) -> Dict[str, TrialResult]:
     """Run selected planners on a single shared env."""
     results: Dict[str, TrialResult] = {}
 
     env = RRTEnvironment(render_mode="rgb_array")
-    spawn_obstacles(env)
+    spawn_obstacles(env, scene=scene)
 
     if random_mode:
-        q_start, q_goal = sample_random_start_goal(env, seed=seed)
+        q_start = PANDA_REST_POSES.copy()
+        q_goal = sample_random_goal(env, q_start, seed=seed)
     else:
         q_start = PANDA_REST_POSES.copy()
-        q_goal = load_demo_goal()
+        q_goal = load_demo_goal(scene)
 
     for name in planners:
         results[name] = _RUNNERS[name](
@@ -266,6 +269,7 @@ def run_benchmark(
     verbose: bool = False,
     preset: Optional[str] = None,
     random_mode: bool = False,
+    scene: str = "wall",
 ) -> None:
     # Resolve preset
     if preset is None:
@@ -275,7 +279,7 @@ def run_benchmark(
     mode_label = "random start/goal" if random_mode else "demo obstacle scene"
     print("=" * 64)
     print(f"  Benchmark: {' vs '.join(planners)}")
-    print(f"  Trials: {n_trials}   |   {mode_label}")
+    print(f"  Trials: {n_trials}   |   {mode_label}   |   scene: {scene}")
     print("=" * 64)
 
     all_results: List[Dict[str, TrialResult]] = []
@@ -285,6 +289,7 @@ def run_benchmark(
         t0 = time.perf_counter()
         results = _run_trial(
             planners, seed, verbose=verbose, random_mode=random_mode,
+            scene=scene,
         )
         elapsed = time.perf_counter() - t0
         all_results.append(results)
@@ -312,9 +317,16 @@ parser.add_argument("--random", action="store_true",
 parser.add_argument("--preset", type=str, default=None,
                     choices=list(PRESETS.keys()),
                     help="Planner preset (skip interactive menu)")
+_scene_grp = parser.add_mutually_exclusive_group()
+_scene_grp.add_argument("--wall", action="store_const", dest="scene",
+                        const="wall", help="Wall obstacle scene (default)")
+_scene_grp.add_argument("--canopy", action="store_const", dest="scene",
+                        const="canopy", help="Canopy obstacle scene")
+parser.set_defaults(scene="wall")
 args = parser.parse_args()
 
 run_benchmark(
     n_trials=args.trials, verbose=args.verbose,
     preset=args.preset, random_mode=args.random,
+    scene=args.scene,
 )
