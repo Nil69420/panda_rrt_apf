@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
@@ -12,48 +11,49 @@ from panda_rrt.common_utils.robot_constants import (
     PANDA_JOINT_RANGES,
     PANDA_NUM_JOINTS,
 )
+from panda_rrt.collision import CollisionChecker
+from panda_rrt.cspace_apf import CSpaceAPF
+from panda_rrt.pure_rrt import Node, PlannerResult
 from panda_rrt.config import get as cfg
 
 
-@dataclass
-class Node:
-    q: np.ndarray
-    parent: Optional[int] = None
-    cost: float = 0.0
+class APFGuidedRRT:
+    """RRT planner augmented with a C-space Artificial Potential Field.
 
-
-@dataclass
-class PlannerResult:
-    success: bool
-    path: List[np.ndarray] = field(default_factory=list)
-    smoothed_path: List[np.ndarray] = field(default_factory=list)
-    tree_size: int = 0
-    iterations: int = 0
-    planning_time: float = 0.0
-    path_length: float = 0.0
-    smoothed_length: float = 0.0
-
-
-class PureRRT:
-    """Vanilla RRT planner with goal-biased sampling."""
+    Each iteration either (a) steers toward the goal, (b) follows the
+    APF force, or (c) takes a standard random-explore step — chosen
+    stochastically via ``goal_bias`` and ``apf_bias``.
+    """
 
     def __init__(
         self,
         env,
         goal_bias: float | None = None,
+        apf_bias: float | None = None,
         step_size: float | None = None,
         max_iterations: int | None = None,
         goal_threshold: float | None = None,
+        k_att: float | None = None,
+        k_rep: float | None = None,
+        rho_0: float | None = None,
         seed: Optional[int] = None,
     ) -> None:
-        _c = cfg("pure_rrt")
+        _c = cfg("apf_rrt")
         self.env = env
         self.goal_bias = goal_bias if goal_bias is not None else _c["goal_bias"]
+        self.apf_bias = apf_bias if apf_bias is not None else _c["apf_bias"]
         self.step_size = step_size if step_size is not None else _c["step_size"]
         self.max_iterations = max_iterations if max_iterations is not None else _c["max_iterations"]
         self.goal_threshold = goal_threshold if goal_threshold is not None else _c["goal_threshold"]
         self.rng = np.random.default_rng(seed)
         self.nodes: List[Node] = []
+
+        self.cc = CollisionChecker(
+            env._p, env.robot_id, env.obstacle_body_ids(),
+        )
+        self.apf = CSpaceAPF(
+            self.cc, k_att=k_att, k_rep=k_rep, rho_0=rho_0,
+        )
 
     # ── sampling helpers ────────────────────────────
 
@@ -71,37 +71,59 @@ class PureRRT:
             return q_target.copy()
         return q_near + (diff / dist) * self.step_size
 
+    def _apf_step(self, q_near: np.ndarray, q_goal: np.ndarray) -> np.ndarray:
+        f_total = self.apf.total_force(q_near, q_goal)
+        f_norm = np.linalg.norm(f_total)
+        if f_norm < 1e-8:
+            return self._random_config()
+        q_new = q_near + self.step_size * (f_total / f_norm)
+        return np.clip(q_new, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS)
+
     # ── tree expansion ──────────────────────────────
 
     def _sample_and_extend(self, q_goal: np.ndarray) -> Optional[int]:
-        """Sample, find nearest, steer, validate, insert.
+        """Pick a strategy, find nearest node, propose ``q_new``.
 
-        Returns new-node index on success, ``None`` if rejected.
+        Returns the new-node index on success, ``None`` if rejected.
         """
-        q_sample = q_goal.copy() if self.rng.random() < self.goal_bias else self._random_config()
+        r = self.rng.random()
+        apf_threshold = self.goal_bias + self.apf_bias
 
-        idx_near = self._nearest(q_sample)
-        q_near = self.nodes[idx_near].q
-        q_new = self._steer(q_near, q_sample)
+        # Choose strategy
+        if r < self.goal_bias:
+            idx_near = self._nearest(q_goal)
+            q_near = self.nodes[idx_near].q
+            q_new = self._steer(q_near, q_goal)
+        elif r < apf_threshold:
+            idx_near = self._nearest(self._random_config())
+            q_near = self.nodes[idx_near].q
+            q_new = self._apf_step(q_near, q_goal)
+        else:
+            q_rand = self._random_config()
+            idx_near = self._nearest(q_rand)
+            q_near = self.nodes[idx_near].q
+            q_new = self._steer(q_near, q_rand)
 
-        if not self.env.is_config_valid(q_new):
+        # Validate
+        if not self.cc.is_config_valid(q_new):
             return None
-        if not self.env.is_edge_valid(q_near, q_new):
+        if not self.cc.is_edge_valid(q_near, q_new):
             return None
 
+        # Insert
         cost_new = self.nodes[idx_near].cost + np.linalg.norm(q_new - q_near)
         self.nodes.append(Node(q=q_new, parent=idx_near, cost=cost_new))
         return len(self.nodes) - 1
 
     def _try_connect_goal(self, new_idx: int, q_goal: np.ndarray) -> Optional[int]:
-        """Attempt to connect ``nodes[new_idx]`` directly to the goal."""
+        """If ``q_new`` is close enough to the goal, try a direct edge."""
         q_new = self.nodes[new_idx].q
         d_to_goal = np.linalg.norm(q_new - q_goal)
         if d_to_goal >= self.goal_threshold:
             return None
 
         nc = max(5, int(d_to_goal / cfg("smoothing", "resolution")))
-        if not self.env.is_edge_valid(q_new, q_goal, n_checks=nc):
+        if not self.cc.is_edge_valid(q_new, q_goal, n_checks=nc):
             return None
 
         goal_cost = self.nodes[new_idx].cost + d_to_goal
@@ -132,7 +154,7 @@ class PureRRT:
             j = self.rng.integers(i + 2, len(smoothed))
             dist = np.linalg.norm(smoothed[j] - smoothed[i])
             n_checks = max(8, int(dist / resolution))
-            if self.env.is_edge_valid(smoothed[i], smoothed[j], n_checks=n_checks):
+            if self.cc.is_edge_valid(smoothed[i], smoothed[j], n_checks=n_checks):
                 smoothed = smoothed[: i + 1] + smoothed[j:]
         return smoothed
 
@@ -161,7 +183,8 @@ class PureRRT:
         t0 = time.perf_counter()
         self.nodes = [Node(q=q_start.copy(), parent=None, cost=0.0)]
 
-        if not self.env.is_config_valid(q_start) or not self.env.is_config_valid(q_goal):
+        # Fast-fail on invalid start / goal
+        if not self.cc.is_config_valid(q_start) or not self.cc.is_config_valid(q_goal):
             return PlannerResult(success=False, planning_time=time.perf_counter() - t0)
 
         for iteration in range(1, self.max_iterations + 1):

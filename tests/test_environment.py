@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 
 from panda_rrt.environment import RRTEnvironment, Obstacle
-from common_utils.robot_constants import PANDA_REST_POSES
+from panda_rrt.common_utils.robot_constants import PANDA_REST_POSES
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ class TestCollisionChecking:
         assert env_with_obstacles.is_config_valid(PANDA_REST_POSES)
 
     def test_out_of_limits_invalid(self, env):
-        from common_utils.robot_constants import PANDA_LOWER_LIMITS
+        from panda_rrt.common_utils.robot_constants import PANDA_LOWER_LIMITS
         q = PANDA_LOWER_LIMITS - 0.1
         assert not env.is_config_valid(q)
 

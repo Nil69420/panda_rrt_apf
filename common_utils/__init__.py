@@ -1,4 +1,4 @@
-from common_utils.robot_constants import (
+from panda_rrt.common_utils.robot_constants import (
     PANDA_LOWER_LIMITS,
     PANDA_UPPER_LIMITS,
     PANDA_JOINT_RANGES,
@@ -8,7 +8,7 @@ from common_utils.robot_constants import (
     PANDA_JOINT_INDICES,
     PANDA_JOINT_FORCES,
 )
-from common_utils.apf import attractive_force, repulsive_force, total_field_force
+from panda_rrt.common_utils.apf import attractive_force, repulsive_force, total_field_force
 
 __all__ = [
     "PANDA_LOWER_LIMITS",

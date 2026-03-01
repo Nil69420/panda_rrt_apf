@@ -4,7 +4,7 @@ import numpy as np
 from panda_rrt.environment import RRTEnvironment
 from panda_rrt.planner import APFGuidedRRT
 from panda_rrt.pure_rrt import PureRRT
-from common_utils.robot_constants import (
+from panda_rrt.common_utils.robot_constants import (
     PANDA_REST_POSES, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS, PANDA_JOINT_RANGES,
 )
 

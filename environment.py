@@ -7,7 +7,7 @@ import numpy as np
 
 from panda_gym.pybullet import PyBullet
 
-from common_utils.robot_constants import (
+from panda_rrt.common_utils.robot_constants import (
     PANDA_EE_LINK,
     PANDA_JOINT_INDICES,
     PANDA_JOINT_FORCES,

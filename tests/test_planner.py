@@ -4,7 +4,7 @@ import numpy as np
 from panda_rrt.environment import RRTEnvironment
 from panda_rrt.planner import CollisionChecker, CSpaceAPF, APFGuidedRRT, COLLISION_LINKS
 from panda_rrt.pure_rrt import Node, PlannerResult
-from common_utils.robot_constants import PANDA_REST_POSES, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS
+from panda_rrt.common_utils.robot_constants import PANDA_REST_POSES, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS
 
 
 @pytest.fixture

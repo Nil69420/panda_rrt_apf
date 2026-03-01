@@ -4,7 +4,7 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from common_utils.robot_constants import (
+from panda_rrt.common_utils.robot_constants import (
     PANDA_EE_LINK,
     PANDA_NUM_JOINTS,
     PANDA_REST_POSES,

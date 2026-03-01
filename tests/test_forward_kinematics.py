@@ -3,7 +3,7 @@ import numpy as np
 
 from panda_rrt.environment import RRTEnvironment
 from panda_rrt.forward_kinematics import PandaFK
-from common_utils.robot_constants import PANDA_REST_POSES
+from panda_rrt.common_utils.robot_constants import PANDA_REST_POSES
 
 
 @pytest.fixture
