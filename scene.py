@@ -26,7 +26,7 @@ def load_demo_obstacles(scene: str = "wall") -> List[Dict]:
     scene : str
         ``"wall"`` (original pillars) or ``"canopy"`` (overhead cage).
     """
-    valid = ("wall", "canopy")
+    valid = ("wall", "canopy", "passage")
     if scene not in valid:
         raise ValueError(f"Unknown scene {scene!r}, expected one of {valid}")
     return cfg("demo", scene)
@@ -71,7 +71,7 @@ def spawn_obstacles(
 def greedy_shortcut(
     path: List[np.ndarray],
     env: RRTEnvironment,
-    resolution: float = 0.05,
+    resolution: float = None,
 ) -> List[np.ndarray]:
     """Greedy forward shortcutter — deterministic, O(n²) worst case.
 
@@ -83,6 +83,8 @@ def greedy_shortcut(
     Returns a pruned path (typically 3–8 waypoints) that preserves
     only the essential corners.
     """
+    if resolution is None:
+        resolution = cfg("scene", "shortcut_resolution")
     if len(path) <= 2:
         return list(path)
 
@@ -107,9 +109,11 @@ def greedy_shortcut(
 def sample_random_config(
     env: RRTEnvironment,
     rng: Optional[np.random.Generator] = None,
-    max_attempts: int = 500,
+    max_attempts: int = None,
 ) -> np.ndarray:
     """Sample a random collision-free joint configuration."""
+    if max_attempts is None:
+        max_attempts = cfg("scene", "max_sample_attempts")
     if rng is None:
         rng = np.random.default_rng()
     for _ in range(max_attempts):
@@ -125,11 +129,15 @@ def sample_random_goal(
     env: RRTEnvironment,
     q_start: np.ndarray,
     seed: Optional[int] = None,
-    min_c_dist: float = 1.0,
-    max_attempts: int = 500,
+    min_c_dist: float = None,
+    max_attempts: int = None,
 ) -> np.ndarray:
     """Sample a random collision-free goal that is at least *min_c_dist*
     from *q_start* in C-space."""
+    if min_c_dist is None:
+        min_c_dist = cfg("scene", "min_c_dist")
+    if max_attempts is None:
+        max_attempts = cfg("scene", "max_sample_attempts")
     rng = np.random.default_rng(seed)
     for _ in range(max_attempts):
         q_goal = sample_random_config(env, rng)
@@ -144,11 +152,15 @@ def sample_random_goal(
 def sample_random_start_goal(
     env: RRTEnvironment,
     seed: Optional[int] = None,
-    min_c_dist: float = 1.0,
-    max_attempts: int = 200,
+    min_c_dist: float = None,
+    max_attempts: int = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Sample a random (start, goal) pair that are collision-free and
     separated by at least *min_c_dist* in C-space."""
+    if min_c_dist is None:
+        min_c_dist = cfg("scene", "min_c_dist")
+    if max_attempts is None:
+        max_attempts = cfg("scene", "max_sample_attempts")
     rng = np.random.default_rng(seed)
     for _ in range(max_attempts):
         q_start = sample_random_config(env, rng)

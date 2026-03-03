@@ -1,7 +1,12 @@
+"""Vanilla RRT planner with goal-biased sampling.
+
+Implements the standard Rapidly-exploring Random Tree algorithm with
+a configurable goal bias.  Uses JIT-accelerated nearest-neighbour
+search when Numba is available.
+"""
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
@@ -12,77 +17,99 @@ from panda_rrt.common_utils.robot_constants import (
     PANDA_JOINT_RANGES,
     PANDA_NUM_JOINTS,
 )
+from panda_rrt.computations.jit_kernels import nearest_node_idx, steer
+from panda_rrt.planners.core import Node, PlannerResult
 from panda_rrt.config import get as cfg
 
-
-@dataclass
-class Node:
-    q: np.ndarray
-    parent: Optional[int] = None
-    cost: float = 0.0
-
-
-@dataclass
-class PlannerResult:
-    success: bool
-    path: List[np.ndarray] = field(default_factory=list)
-    smoothed_path: List[np.ndarray] = field(default_factory=list)
-    tree_size: int = 0
-    iterations: int = 0
-    planning_time: float = 0.0
-    path_length: float = 0.0
-    smoothed_length: float = 0.0
+# Pre-allocated node buffer growth increment
+_BUFFER_CHUNK = 2048
 
 
 class PureRRT:
-    """Vanilla RRT planner with goal-biased sampling."""
+    """Goal-biased RRT planner.
+
+    Parameters
+    ----------
+    env : RRTEnvironment
+    goal_bias : float
+        Probability of sampling the goal directly.
+    step_size : float
+        Maximum extension distance per iteration (radians).
+    max_iterations : int
+    goal_threshold : float
+        Distance at which a direct connection to the goal is attempted.
+    seed : int or None
+        RNG seed for reproducibility.
+    """
 
     def __init__(
         self,
         env,
-        goal_bias: float | None = None,
-        step_size: float | None = None,
-        max_iterations: int | None = None,
-        goal_threshold: float | None = None,
+        goal_bias: float = None,
+        step_size: float = None,
+        max_iterations: int = None,
+        goal_threshold: float = None,
         seed: Optional[int] = None,
     ) -> None:
         _c = cfg("pure_rrt")
         self.env = env
         self.goal_bias = goal_bias if goal_bias is not None else _c["goal_bias"]
         self.step_size = step_size if step_size is not None else _c["step_size"]
-        self.max_iterations = max_iterations if max_iterations is not None else _c["max_iterations"]
-        self.goal_threshold = goal_threshold if goal_threshold is not None else _c["goal_threshold"]
+        self.max_iterations = (
+            max_iterations if max_iterations is not None else _c["max_iterations"]
+        )
+        self.goal_threshold = (
+            goal_threshold if goal_threshold is not None else _c["goal_threshold"]
+        )
         self.rng = np.random.default_rng(seed)
         self.nodes: List[Node] = []
 
-    # ── sampling helpers ────────────────────────────
+        # JIT-friendly node buffer: (capacity, 7)
+        self._nodes_q = np.empty((_BUFFER_CHUNK, PANDA_NUM_JOINTS))
+
+    # ── Internal helpers ────────────────────────────
+
+    def _ensure_capacity(self) -> None:
+        """Grow the node buffer if full."""
+        n = len(self.nodes)
+        if n >= self._nodes_q.shape[0]:
+            self._nodes_q = np.resize(
+                self._nodes_q, (n + _BUFFER_CHUNK, PANDA_NUM_JOINTS),
+            )
+
+    def _add_node(self, q: np.ndarray, parent: Optional[int], cost: float) -> int:
+        """Append a node and mirror it into the JIT buffer."""
+        idx = len(self.nodes)
+        self._ensure_capacity()
+        self._nodes_q[idx] = q
+        self.nodes.append(Node(q=q, parent=parent, cost=cost))
+        return idx
 
     def _random_config(self) -> np.ndarray:
         return PANDA_LOWER_LIMITS + self.rng.random(PANDA_NUM_JOINTS) * PANDA_JOINT_RANGES
 
     def _nearest(self, q: np.ndarray) -> int:
-        dists = [np.linalg.norm(q - n.q) for n in self.nodes]
-        return int(np.argmin(dists))
+        return nearest_node_idx(self._nodes_q, len(self.nodes), q)
 
-    def _steer(self, q_near: np.ndarray, q_target: np.ndarray) -> np.ndarray:
-        diff = q_target - q_near
-        dist = np.linalg.norm(diff)
-        if dist < self.step_size:
-            return q_target.copy()
-        return q_near + (diff / dist) * self.step_size
-
-    # ── tree expansion ──────────────────────────────
+    # ── Tree expansion ──────────────────────────────
 
     def _sample_and_extend(self, q_goal: np.ndarray) -> Optional[int]:
-        """Sample, find nearest, steer, validate, insert.
+        """Sample, steer, validate, insert.
 
-        Returns new-node index on success, ``None`` if rejected.
+        Returns
+        -------
+        int or None
+            Index of the newly added node, or ``None`` if rejected.
         """
-        q_sample = q_goal.copy() if self.rng.random() < self.goal_bias else self._random_config()
+        q_sample = (
+            q_goal.copy()
+            if self.rng.random() < self.goal_bias
+            else self._random_config()
+        )
 
         idx_near = self._nearest(q_sample)
         q_near = self.nodes[idx_near].q
-        q_new = self._steer(q_near, q_sample)
+        q_new = steer(q_near, q_sample, self.step_size)
 
         if not self.env.is_config_valid(q_new):
             return None
@@ -90,25 +117,24 @@ class PureRRT:
             return None
 
         cost_new = self.nodes[idx_near].cost + np.linalg.norm(q_new - q_near)
-        self.nodes.append(Node(q=q_new, parent=idx_near, cost=cost_new))
-        return len(self.nodes) - 1
+        return self._add_node(q_new, idx_near, cost_new)
 
-    def _try_connect_goal(self, new_idx: int, q_goal: np.ndarray) -> Optional[int]:
-        """Attempt to connect ``nodes[new_idx]`` directly to the goal."""
+    def _try_connect_goal(
+        self, new_idx: int, q_goal: np.ndarray,
+    ) -> Optional[int]:
+        """Attempt a direct edge from *new_idx* to the goal."""
         q_new = self.nodes[new_idx].q
-        d_to_goal = np.linalg.norm(q_new - q_goal)
-        if d_to_goal >= self.goal_threshold:
+        d = np.linalg.norm(q_new - q_goal)
+        if d >= self.goal_threshold:
             return None
 
-        nc = max(5, int(d_to_goal / cfg("smoothing", "resolution")))
+        nc = max(5, int(d / cfg("smoothing", "resolution")))
         if not self.env.is_edge_valid(q_new, q_goal, n_checks=nc):
             return None
 
-        goal_cost = self.nodes[new_idx].cost + d_to_goal
-        self.nodes.append(Node(q=q_goal.copy(), parent=new_idx, cost=goal_cost))
-        return len(self.nodes) - 1
+        return self._add_node(q_goal.copy(), new_idx, self.nodes[new_idx].cost + d)
 
-    # ── path post-processing ────────────────────────
+    # ── Path extraction and smoothing ───────────────
 
     def _extract_path(self, goal_idx: int) -> List[np.ndarray]:
         path: List[np.ndarray] = []
@@ -138,7 +164,10 @@ class PureRRT:
 
     @staticmethod
     def _path_length(path: List[np.ndarray]) -> float:
-        return sum(np.linalg.norm(path[i + 1] - path[i]) for i in range(len(path) - 1))
+        return sum(
+            np.linalg.norm(path[i + 1] - path[i])
+            for i in range(len(path) - 1)
+        )
 
     def _build_result(
         self, path: List[np.ndarray], iteration: int, t0: float,
@@ -155,11 +184,23 @@ class PureRRT:
             smoothed_length=self._path_length(smoothed),
         )
 
-    # ── main entry point ────────────────────────────
+    # ── Public API ──────────────────────────────────
 
     def plan(self, q_start: np.ndarray, q_goal: np.ndarray) -> PlannerResult:
+        """Run the planner from *q_start* to *q_goal*.
+
+        Parameters
+        ----------
+        q_start, q_goal : ndarray, shape (7,)
+
+        Returns
+        -------
+        PlannerResult
+        """
         t0 = time.perf_counter()
-        self.nodes = [Node(q=q_start.copy(), parent=None, cost=0.0)]
+        self.nodes = []
+        self._nodes_q = np.empty((_BUFFER_CHUNK, PANDA_NUM_JOINTS))
+        self._add_node(q_start.copy(), parent=None, cost=0.0)
 
         if not self.env.is_config_valid(q_start) or not self.env.is_config_valid(q_goal):
             return PlannerResult(success=False, planning_time=time.perf_counter() - t0)
@@ -171,8 +212,7 @@ class PureRRT:
 
             goal_idx = self._try_connect_goal(new_idx, q_goal)
             if goal_idx is not None:
-                path = self._extract_path(goal_idx)
-                return self._build_result(path, iteration, t0)
+                return self._build_result(self._extract_path(goal_idx), iteration, t0)
 
         return PlannerResult(
             success=False,

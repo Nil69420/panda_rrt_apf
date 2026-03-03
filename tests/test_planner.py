@@ -2,8 +2,10 @@ import pytest
 import numpy as np
 
 from panda_rrt.environment import RRTEnvironment
-from panda_rrt.planner import CollisionChecker, CSpaceAPF, APFGuidedRRT, COLLISION_LINKS
-from panda_rrt.pure_rrt import Node, PlannerResult
+from panda_rrt.computations.collision import CollisionChecker, COLLISION_LINKS
+from panda_rrt.computations.cspace_apf import CSpaceAPF
+from panda_rrt.planners.apf_rrt import APFGuidedRRT
+from panda_rrt.planners.core import Node, PlannerResult
 from panda_rrt.common_utils.robot_constants import PANDA_REST_POSES, PANDA_LOWER_LIMITS, PANDA_UPPER_LIMITS
 
 

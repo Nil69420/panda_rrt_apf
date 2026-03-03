@@ -55,6 +55,27 @@ optimizer:
   danger_threshold: 0.05      # metres — hinge cutoff: no penalty beyond this
   resample_n: 20              # waypoints after resampling
 
+# ── Environment ────────────────────────────────────
+environment:
+  table_x_offset: -0.3
+  table_length: 1.1
+  table_width: 0.7
+  table_height: 0.4
+  plane_z_offset: -0.4
+  cluttered_canopy:
+    min_separation: 0.08
+    max_placement_attempts: 200
+    sphere_radius_range: [0.025, 0.05]
+    cylinder_radius_range: [0.015, 0.035]
+    cylinder_height_range: [0.10, 0.30]
+    default_sphere_ratio: 0.4
+
+# ── Scene ──────────────────────────────────────────
+scene:
+  max_sample_attempts: 500
+  min_c_dist: 1.0
+  shortcut_resolution: 0.05
+
 # ── Benchmark ──────────────────────────────────────
 benchmark:
   n_trials: 20
@@ -62,8 +83,9 @@ benchmark:
 # ── Demo scenes ────────────────────────────────────
 demo:
   # Per-scene fixed goals
-  wall_goal:   [1.2, 0.2, -0.3, -1.8, 0.5, 2.5, 0.0]
-  canopy_goal: [0.3, 0.1, 0.4, -2.5, -0.2, 2.8, 0.4]
+  wall_goal:    [1.2, 0.2, -0.3, -1.8, 0.5, 2.5, 0.0]
+  canopy_goal:  [0.3, 0.1, 0.4, -2.5, -0.2, 2.8, 0.4]
+  passage_goal: [0.94, 1.50, -0.10, -0.86, 0.33, 3.43, 1.09]
 
   # "wall" — original pillars + balls in front of the arm
   wall:
@@ -96,6 +118,20 @@ demo:
     - { shape: sphere, name: cap_rear,    pos: [0.06,  0.00,  0.55], radius: 0.025, color: [0.25, 0.55, 0.90, 0.80] }
     # mid-level cage between elbow and wrist
     - { shape: cylinder, name: cap_cage,  pos: [0.32,  0.12,  0.50], radius: 0.018, height: 0.12, color: [0.90, 0.40, 0.55, 0.80] }
+
+  # "passage" — staggered corridor of obstacles the arm must weave through
+  passage:
+    # Left flank (positive-y, staggered along the arm)
+    - { shape: sphere,   name: pass_L1,  pos: [0.20,  0.12,  0.56], radius: 0.025, color: [0.95, 0.30, 0.30, 0.80] }
+    - { shape: sphere,   name: pass_L2,  pos: [0.36,  0.14,  0.52], radius: 0.025, color: [0.15, 0.80, 0.80, 0.80] }
+    - { shape: sphere,   name: pass_L3,  pos: [0.50,  0.16,  0.44], radius: 0.025, color: [0.40, 0.90, 0.35, 0.80] }
+    # Right flank (negative-y, cylinder pillar + spheres)
+    - { shape: cylinder, name: pass_R1,  pos: [0.24, -0.14,  0.50], radius: 0.020, height: 0.10, color: [0.70, 0.25, 0.85, 0.80] }
+    - { shape: sphere,   name: pass_R2,  pos: [0.36, -0.08,  0.50], radius: 0.025, color: [0.30, 0.75, 0.95, 0.80] }
+    - { shape: sphere,   name: pass_R3,  pos: [0.50, -0.08,  0.38], radius: 0.025, color: [0.85, 0.50, 0.20, 0.80] }
+    # Ceiling + floor pinch
+    - { shape: sphere,   name: pass_top, pos: [0.35,  0.04,  0.68], radius: 0.025, color: [0.95, 0.80, 0.20, 0.80] }
+    - { shape: sphere,   name: pass_bot, pos: [0.42,  0.00,  0.34], radius: 0.025, color: [0.90, 0.40, 0.55, 0.80] }
 
 # ── Visualisation ──────────────────────────────────
 visualisation:

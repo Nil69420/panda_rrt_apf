@@ -16,6 +16,7 @@ from panda_rrt.common_utils.robot_constants import (
     PANDA_REST_POSES,
     PANDA_NUM_JOINTS,
 )
+from panda_rrt.config import get as cfg
 
 
 @dataclass
@@ -34,20 +35,27 @@ def _random_rgba(rng: np.random.Generator) -> np.ndarray:
 
 
 class RRTEnvironment:
-    TABLE_X_OFFSET = -0.3
-    TABLE_LENGTH = 1.1
-    TABLE_WIDTH = 0.7
-    TABLE_HEIGHT = 0.4
+    """PyBullet simulation environment for the Panda arm.
+
+    Table dimensions and plane offset are loaded from
+    ``config/default.yaml`` under the ``environment`` key.
+    """
 
     def __init__(
         self,
         render_mode: str = "human",
         n_substeps: int = 20,
     ) -> None:
+        _ec = cfg("environment")
+        self.TABLE_X_OFFSET = _ec["table_x_offset"]
+        self.TABLE_LENGTH = _ec["table_length"]
+        self.TABLE_WIDTH = _ec["table_width"]
+        self.TABLE_HEIGHT = _ec["table_height"]
+
         self.sim = PyBullet(render_mode=render_mode, n_substeps=n_substeps)
         self._p = self.sim.physics_client
 
-        self.sim.create_plane(z_offset=-0.4)
+        self.sim.create_plane(z_offset=_ec["plane_z_offset"])
         self.sim.create_table(
             length=self.TABLE_LENGTH,
             width=self.TABLE_WIDTH,
@@ -144,21 +152,51 @@ class RRTEnvironment:
         self,
         n_obstacles: int = 10,
         rng: Optional[np.random.Generator] = None,
-        x_range: Tuple[float, float] = (-0.15, 0.25),
-        y_range: Tuple[float, float] = (-0.25, 0.25),
-        z_range: Tuple[float, float] = (0.10, 0.50),
-        sphere_ratio: float = 0.4,
+        x_range: Tuple[float, float] = None,
+        y_range: Tuple[float, float] = None,
+        z_range: Tuple[float, float] = None,
+        sphere_ratio: float = None,
     ) -> List[Obstacle]:
+        """Generate a randomised canopy of obstacles around the arm.
+
+        All default parameter values are loaded from the
+        ``environment.cluttered_canopy`` config section.
+        """
+        _cc = cfg("environment", "cluttered_canopy")
         if rng is None:
             rng = np.random.default_rng()
+        if x_range is None:
+            x_range = tuple(_cc.get("default_x_range", (-0.15, 0.25)))
+        if y_range is None:
+            y_range = tuple(_cc.get("default_y_range", (-0.25, 0.25)))
+        if z_range is None:
+            z_range = tuple(_cc.get("default_z_range", (0.10, 0.50)))
+        if sphere_ratio is None:
+            sphere_ratio = _cc["default_sphere_ratio"]
+
+        min_sep = _cc["min_separation"]
+        max_tries = _cc["max_placement_attempts"]
+        sph_r = _cc["sphere_radius_range"]
+        cyl_r = _cc["cylinder_radius_range"]
+        cyl_h = _cc["cylinder_height_range"]
 
         placed: List[np.ndarray] = []
         created: List[Obstacle] = []
-        min_sep = 0.08
+
+        def _spawn(pos: np.ndarray) -> Obstacle:
+            """Dict-dispatch helper: choose shape and spawn."""
+            if rng.random() < sphere_ratio:
+                r = rng.uniform(sph_r[0], sph_r[1])
+                return self.spawn_obstacle_sphere(pos, radius=r,
+                                                   color=_random_rgba(rng))
+            r = rng.uniform(cyl_r[0], cyl_r[1])
+            h = rng.uniform(cyl_h[0], cyl_h[1])
+            return self.spawn_obstacle_cylinder(pos, radius=r, height=h,
+                                                 color=_random_rgba(rng))
 
         for i in range(n_obstacles):
             success = False
-            for _ in range(200):
+            for _ in range(max_tries):
                 pos = np.array([
                     rng.uniform(*x_range),
                     rng.uniform(*y_range),
@@ -167,16 +205,7 @@ class RRTEnvironment:
                 if not all(np.linalg.norm(pos - p) > min_sep for p in placed):
                     continue
 
-                if rng.random() < sphere_ratio:
-                    r = rng.uniform(0.025, 0.05)
-                    obs = self.spawn_obstacle_sphere(pos, radius=r,
-                                                     color=_random_rgba(rng))
-                else:
-                    r = rng.uniform(0.015, 0.035)
-                    h = rng.uniform(0.10, 0.30)
-                    obs = self.spawn_obstacle_cylinder(pos, radius=r, height=h,
-                                                       color=_random_rgba(rng))
-
+                obs = _spawn(pos)
                 if self.is_config_collision_free(PANDA_REST_POSES):
                     placed.append(pos)
                     created.append(obs)
@@ -188,22 +217,14 @@ class RRTEnvironment:
                     self._p.removeBody(body_id)
 
             if not success:
-                if rng.random() < sphere_ratio:
-                    r = rng.uniform(0.025, 0.05)
-                    obs = self.spawn_obstacle_sphere(pos, radius=r,
-                                                     color=_random_rgba(rng))
-                else:
-                    r = rng.uniform(0.015, 0.035)
-                    h = rng.uniform(0.10, 0.30)
-                    obs = self.spawn_obstacle_cylinder(pos, radius=r, height=h,
-                                                       color=_random_rgba(rng))
+                obs = _spawn(pos)
                 placed.append(pos)
                 created.append(obs)
 
         return created
 
     def is_config_collision_free(self, q: np.ndarray) -> bool:
-        from panda_rrt.planner import CollisionChecker, SAFETY_MARGIN
+        from panda_rrt.computations.collision import CollisionChecker, SAFETY_MARGIN
         if np.any(q < PANDA_LOWER_LIMITS) or np.any(q > PANDA_UPPER_LIMITS):
             return False
         if not self.obstacles:
