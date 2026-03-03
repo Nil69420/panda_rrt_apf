@@ -25,9 +25,10 @@ panda_rrt/
         visualisation.py    # PyBullet markers and traces
     config/
         default.yaml        # All tuneable parameters
+    commands.py             # Unified CLI entry-point
     environment.py          # PyBullet simulation wrapper
     scene.py                # Obstacle spawning and goal sampling
-    main.py                 # Unified CLI entry-point
+    main.py                 # Dispatch Script
     benchmark.py            # Benchmark CLI wrapper
     tests/                  # Pytest suite
 ```
@@ -161,6 +162,6 @@ cd docs && make html
 
 ## Obstacle Scenes
 
-- **wall**: Original pillars and balls in front of the arm
+- **wall**: Pillars and balls in front of the arm
 - **canopy**: Tight cage of objects surrounding the arm (1-6 cm clearance)
 - **passage**: Staggered corridor the arm must weave through
