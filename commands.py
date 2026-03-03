@@ -198,7 +198,6 @@ def run_visual(
                  np.array(cfg("visualisation", "start_marker_color")))
     place_marker(env.sim, "marker_goal", ee_goal,
                  np.array(cfg("visualisation", "goal_marker_color")))
-    env.sim.step()
 
     # 4. Plan
     has_post = planner_type in ("apf_opt", "apf_spline")
@@ -260,8 +259,7 @@ def run_visual(
     print(f"[{ee_step}/{steps}] Drawing EE path trace ...")
     draw_ee_trace(env._p, fk, final_path)
 
-    anim_path = SplineSmoother.smooth(final_path, n_points=max(60, len(final_path)))
-    dense = interpolate_path(anim_path)
+    dense = interpolate_path(final_path)
     duration_est = len(dense) * delay
     print(f"[{steps}/{steps}] Animating {len(dense)} frames "
           f"(~{duration_est:.1f} s at {1 / delay:.0f} fps) ...\n")

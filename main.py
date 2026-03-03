@@ -1,7 +1,5 @@
 """Unified CLI entry-point for the Panda RRT motion-planning project.
 
-This script contains **no function definitions**; all logic lives in
-:mod:`panda_rrt.commands`.
 
 Usage::
 

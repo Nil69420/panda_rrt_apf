@@ -244,8 +244,13 @@ class RRTEnvironment:
         return True
 
     def visualize_config(self, q: np.ndarray) -> None:
+        """Set the robot to configuration *q* for display.
+
+        Uses ``resetJointState`` only — no physics step is executed so
+        the arm stays exactly at the requested joint angles.  The
+        PyBullet GUI thread picks up the new state automatically.
+        """
         self._set_joint_config(q)
-        self.sim.step()
 
     def close(self) -> None:
         self.sim.close()
