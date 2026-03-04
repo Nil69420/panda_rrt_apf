@@ -8,6 +8,9 @@ matplotlib>=3.4
 # JIT (optional -- graceful fallback if absent)
 numba>=0.53
 
+# Local panda-gym fork (install with: pip install -e ./panda-gym)
+panda-gym
+
 # Testing
 pytest>=7.0
 
