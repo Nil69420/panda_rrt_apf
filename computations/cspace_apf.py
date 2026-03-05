@@ -7,12 +7,13 @@ Key design choices
 ------------------
 1. **Conic / quadratic attractive gradient** -- prevents the goal from
    overpowering repulsive fields at large distances.  Within
-   :math:`d_{\text{thresh}}` the gradient is quadratic; beyond it the
-   magnitude is clamped (conic regime).
+   :math:`d_{\text{thresh}}` (the crossover distance) the gradient is
+   quadratic; beyond it the magnitude is clamped (conic regime).
 2. **Jacobian-transpose repulsive gradient** -- maps 3-D contact normals
-   :math:`\hat{n}` to 7-D joint torques via :math:`J^T`, replacing the
-   old 14-call finite-difference sweep with one ``calculateJacobian``
-   per active link.
+   :math:`\hat{n}` (unit vector from obstacle to link) to 7-D joint
+   torques via :math:`J^T` (the transpose of the Jacobian matrix),
+   replacing the old 14-call finite-difference sweep with one
+   ``calculateJacobian`` per active link.
 3. **Per-component force capping** -- individual attractive/repulsive
    forces are capped at ``f_max`` before summation; the resultant is
    normalised so ``step_size`` alone governs displacement magnitude.
@@ -88,6 +89,14 @@ class CSpaceAPF:
               & d > d_{\text{thresh}}
             \end{cases}
 
+        In plain terms:
+
+        * When close to the goal (distance <= threshold):
+          gradient = k_att * (current - goal)  (quadratic pull).
+        * When far from the goal (distance > threshold):
+          gradient = k_att * threshold * (current - goal) / distance
+          (constant-magnitude pull, so it doesn't overpower repulsion).
+
         The conic branch caps the attractive pull so it cannot overpower
         the repulsive field at large goal distances.
         """
@@ -153,12 +162,18 @@ class CSpaceAPF:
     def repulsive_gradient(self, q: np.ndarray) -> np.ndarray:
         r"""Repulsive gradient via the Jacobian transpose.
 
-        For each link within :math:`\rho_0`:
+        For each link within :math:`\rho_0` (the repulsion influence
+        radius):
 
         .. math::
             \nabla_q U_{\text{rep}}
             = -k_{\text{rep}} \left(\frac{1}{\rho} - \frac{1}{\rho_0}\right)
               \frac{1}{\rho^2} \, J^T \hat{n}
+
+        In plain terms: for each robot link closer than rho_0 to an
+        obstacle, the repulsive gradient is:
+        -k_rep * (1/distance - 1/rho_0) / distance^2 * J^T * normal,
+        where J^T maps the 3-D push direction into joint-space torques.
         """
         contact_info = self._per_link_contact_info(q)
         grad = np.zeros(PANDA_NUM_JOINTS)
@@ -192,6 +207,10 @@ class CSpaceAPF:
             F = \frac{\text{cap}(-\nabla U_{\text{att}})
                       + \text{cap}(-\nabla U_{\text{rep}})}
                      {\|\cdot\|}
+
+        In plain terms: negate both gradients (so they become forces),
+        cap each at f_max to prevent either from dominating, add them
+        together, then normalise to a unit vector.
         """
         f_att = self._cap(-self.attractive_gradient(q, q_goal), self.f_max)
         f_rep = self._cap(-self.repulsive_gradient(q), self.f_max)

@@ -92,8 +92,11 @@ class PandaFK:
     def jacobian(self, q: np.ndarray) -> np.ndarray:
         r"""Linear Jacobian of the end-effector: :math:`J \in \mathbb{R}^{3 \times 7}`.
 
-        Relates joint velocities to EE linear velocity via
-        :math:`\dot{x} = J\,\dot{q}`.
+        A 3-by-7 matrix that relates joint velocities to end-effector
+        linear velocity via :math:`\dot{x} = J\,\dot{q}`.
+
+        In plain terms: multiplying this matrix by joint velocities
+        gives the end-effector's velocity in 3-D space.
 
         Parameters
         ----------

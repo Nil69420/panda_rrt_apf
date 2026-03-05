@@ -3,12 +3,17 @@ r"""Cubic B-spline path smoother.
 Fits a natural / clamped cubic spline through a sequence of joint-space
 waypoints and resamples at uniform arc-length intervals, producing a
 trajectory with :math:`C^2` continuity (smooth position, velocity, and
-acceleration).
+acceleration).  C^2 means the path and its first two derivatives are
+continuous -- no sudden jumps in acceleration.
 
 The natural cubic spline is the minimum-energy interpolant:
 
 .. math::
     \min \int_0^1 \|\ddot{q}(t)\|^2 \, dt
+
+In plain terms: among all smooth curves passing through the waypoints,
+the cubic spline minimises the total squared acceleration (the
+smoothest possible interpolation).
 
 This module is pure maths -- **no physics-engine calls** -- so it runs in
 sub-millisecond time regardless of obstacle count.
@@ -81,6 +86,10 @@ class SplineSmoother:
         bc_type: str = "clamped",
     ) -> float:
         r"""Compute :math:`J = \int_0^1 \|\ddot{q}(t)\|^2\,dt`.
+
+        In plain terms: integrate the squared acceleration along the
+        spline from start to end.  Lower values mean a smoother
+        trajectory.
 
         Useful for comparing trajectory smoothness: lower is better.
 

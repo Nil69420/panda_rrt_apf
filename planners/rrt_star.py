@@ -14,6 +14,11 @@ Ball radius follows the RRT* formula:
 
     r_n = \\gamma \\left(\\frac{\\log n}{n}\\right)^{1/d}
 
+In plain terms: the search radius shrinks as the tree grows --
+radius = gamma * (log(n) / n)^(1/d), where n is the number of nodes
+and d is the number of joints. This guarantees the planner converges
+to the optimal path as the tree gets larger.
+
 Uses JIT-accelerated nearest-neighbour search when Numba is available.
 """
 from __future__ import annotations
@@ -115,7 +120,10 @@ class RRTStar:
         return list(idxs)
 
     def _shrinking_radius(self) -> float:
-        """RRT* ball radius: :math:`\\gamma (\\log n / n)^{1/d}`."""
+        """RRT* ball radius: :math:`\\gamma (\\log n / n)^{1/d}`.
+
+        In plain terms: radius = gamma * (log(tree_size) / tree_size)^(1/num_joints).
+        """
         n = max(len(self.nodes), 2)
         d = PANDA_NUM_JOINTS
         gamma = self.rewire_radius * (n ** (1.0 / d)) / max((math.log(n) ** (1.0 / d)), 1e-6)

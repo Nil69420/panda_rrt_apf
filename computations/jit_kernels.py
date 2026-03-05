@@ -137,6 +137,9 @@ def path_length(path):
     .. math::
         L = \sum_{i=0}^{n-2} \|q_{i+1} - q_i\|_2
 
+    In plain terms: sum of straight-line distances between
+    consecutive waypoints.
+
     Parameters
     ----------
     path : ndarray, shape (n, dof)
@@ -164,6 +167,11 @@ def smoothness_cost(path):
     .. math::
         J_{\text{smooth}} = \sum_{i=1}^{n-2}
             \|q_{i+1} - 2\,q_i + q_{i-1}\|^2
+
+    In plain terms: for each interior waypoint, compute the
+    acceleration approximation (next - 2*current + previous),
+    square its magnitude, and sum over all interior waypoints.
+    Lower values mean a smoother path.
 
     Parameters
     ----------
@@ -195,9 +203,15 @@ def smooth_gradient_all(path):
     .. math::
         \nabla_i J = 2\,a_{i-1} - 4\,a_i + 2\,a_{i+1}
 
-    where :math:`a_k = q_{k+1} - 2q_k + q_{k-1}`.  Boundary terms
+    where :math:`a_k = q_{k+1} - 2q_k + q_{k-1}` (the discrete
+    acceleration at waypoint k).  Boundary terms
     (:math:`a_{i-2}` or :math:`a_{i+2}` outside the path) are clamped
     to zero.
+
+    In plain terms: each waypoint's gradient combines the acceleration
+    at itself and its two neighbours.  The formula is:
+    gradient = 2*(accel at prev) - 4*(accel at current) + 2*(accel at next),
+    skipping terms that fall outside the path.
 
     Uses ``prange`` so each interior waypoint is computed on a separate
     thread.

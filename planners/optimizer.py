@@ -17,6 +17,15 @@ where:
     J_{\\text{obs}} = \\sum_i \\max\\!\\left(0,\\;
         \\frac{1}{d_{\\min}(q_i)} - \\frac{1}{d_{\\text{safe}}}\\right)^{\\!2}
 
+In plain terms:
+
+* Total cost = smoothness cost + lambda * obstacle cost.
+* Smoothness cost: sum of squared discrete accelerations along the path
+  (lower means smoother).
+* Obstacle cost: for each waypoint closer than the safety distance to an
+  obstacle, penalise by (1/distance - 1/safety_distance)^2.  Waypoints
+  far from obstacles contribute nothing.
+
 Start and goal waypoints are pinned; only interior waypoints move.
 """
 from __future__ import annotations
@@ -46,9 +55,10 @@ class PathOptimizer:
     ----------
     collision_checker : CollisionChecker
     lr : float
-        Learning rate :math:`\\eta`.
+        Learning rate :math:`\\eta` (step size for gradient descent).
     lam : float
-        Obstacle-cost weight :math:`\\lambda`.
+        Obstacle-cost weight :math:`\\lambda` (how strongly to penalise
+        proximity to obstacles relative to smoothness).
     n_iters : int
         Maximum gradient-descent iterations.
     delta_q : float
@@ -59,6 +69,8 @@ class PathOptimizer:
     danger_threshold : float
         Hinge cutoff :math:`d_{\\text{safe}}` (metres). Waypoints further
         than this from any obstacle contribute zero obstacle cost.
+        In plain terms: the safety distance beyond which obstacles
+        are ignored.
     """
 
     # Max C-space movement per waypoint per iteration (prevents teleporting)
@@ -98,6 +110,9 @@ class PathOptimizer:
 
             J_{\\text{smooth}} = \\sum_{i=1}^{n-2}
                 \\|q_{i+1} - 2q_i + q_{i-1}\\|^2
+
+        In plain terms: sum of squared discrete accelerations.
+        Each interior waypoint contributes (next - 2*current + prev)^2.
         """
         if len(path) < 3:
             return 0.0
@@ -127,16 +142,23 @@ class PathOptimizer:
     def _smooth_gradient(path: List[np.ndarray], i: int) -> np.ndarray:
         """Analytic gradient of :math:`J_{\\text{smooth}}` w.r.t. waypoint *i*.
 
+        In plain terms: the derivative of the smoothness cost with
+        respect to one waypoint.
+
         Waypoint *q_i* appears in three acceleration terms
-        (:math:`a_{i-1}, a_i, a_{i+1}`), giving:
+        (:math:`a_{i-1}, a_i, a_{i+1}` -- the discrete accelerations
+        at waypoints i-1, i, and i+1), giving:
 
         .. math::
 
             \\frac{\\partial J}{\\partial q_i} =
                 2 a_{i-1} - 4 a_i + 2 a_{i+1}
 
-        Boundary terms are omitted when :math:`i-2` or :math:`i+2` are
-        outside the path.
+        In plain terms: gradient = 2*(accel at i-1) - 4*(accel at i)
+        + 2*(accel at i+1).
+
+        Boundary terms are omitted when :math:`i-2` or :math:`i+2`
+        (two steps before or after) are outside the path.
         """
         n = len(path)
         grad = np.zeros(PANDA_NUM_JOINTS)
@@ -156,6 +178,12 @@ class PathOptimizer:
                 2\\left(\\frac{1}{d} - \\frac{1}{d_{\\text{safe}}}\\right)
                 \\cdot \\left(-\\frac{1}{d^2}\\right)
                 \\cdot J^T \\hat{n}
+
+        In plain terms:
+        gradient = 2 * (1/distance - 1/safety_dist) * (-1/distance^2)
+        * J^T * normal_direction.
+        The Jacobian transpose maps the 3-D push direction into
+        joint-space.
 
         Uses ``getClosestPoints`` once to find contact normals, then
         ``calculateJacobian`` per active link.
