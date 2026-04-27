@@ -2,6 +2,35 @@
 
 Motion planning for the Franka Emika Panda 7-DOF arm using RRT-based planners with C-space Artificial Potential Fields, gradient-descent optimisation, and B-spline smoothing.
 
+## Demo Gallery
+
+| Wall Course | Canopy Course | Passage Course |
+|-------------|---------------|----------------|
+| ![Wall obstacle course demo](misc/wall.gif) | ![Canopy obstacle course demo](misc/canopy.gif) | ![Passage obstacle course demo](misc/passage.gif) |
+
+### 3-D Planner Tree Comparison
+
+![3-D planner tree comparison](misc/3d_viz.png)
+
+### Benchmark Highlights (20 Trials Per Scenario)
+
+| Scenario | Success (APF / APF+Opt / APF+Spline) | Avg Time s (APF / APF+Opt / APF+Spline) | Avg Path rad (APF / APF+Opt / APF+Spline) | Avg Nodes |
+|----------|---------------------------------------|------------------------------------------|--------------------------------------------|-----------|
+| Random Passage | 20/20 / 20/20 / 20/20 | 0.533 / 0.745 / 0.577 | 4.729 / 4.678 / 5.014 | 84 |
+| Fixed Passage | 20/20 / 20/20 / 20/20 | 8.744 / 9.144 / 8.988 | 6.313 / 6.091 / 6.453 | 1244 |
+| Random Canopy | 19/20 / 19/20 / 19/20 | 1.489 / 2.266 / 1.594 | 6.276 / 6.322 / 6.656 | 169 |
+| Fixed Canopy | 19/20 / 19/20 / 19/20 | 15.898 / 16.660 / 16.205 | 5.889 / 5.861 / 6.321 | 2092 |
+| Random Wall | 20/20 / 20/20 / 20/20 | 1.000 / 1.586 / 1.055 | 4.120 / 4.047 / 4.184 | 160 |
+| Fixed Wall | 15/20 / 15/20 / 15/20 | 8.512 / 9.295 / 8.123 | 3.674 / 3.386 / 3.584 | 959 |
+
+### Scenario Plot Deck
+
+| Scenario | Random Start/Goal | Fixed Start/Goal |
+|----------|-------------------|------------------|
+| Passage | ![Random passage benchmark](misc/random_passage.png) | ![Fixed passage benchmark](misc/fixed_passage.png) |
+| Canopy | ![Random canopy benchmark](misc/random_canopy.png) | ![Fixed canopy benchmark](misc/fixed_canopy.png) |
+| Wall | ![Random wall benchmark](misc/random_wall.png) | ![Fixed wall benchmark](misc/fixed_wall.png) |
+
 ## Project Structure
 
 ```
